@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template, session, redirect, url_for
+from flask import Flask, request, jsonify, render_template, session
 from flask_session import Session
 import csv
 
@@ -11,10 +11,12 @@ class BaseUsuario:
         return f"Perfil de {self.nombre_usuario}"
 
 class Usuario(BaseUsuario):
-    def __init__(self, nombre_usuario, contrasena):
+    def __init__(self, nombre_usuario, contrasena, carnet_estudiantil, opcion):
         super().__init__(nombre_usuario)
         self.contrasena = contrasena
-        self.saldo = 0  # Agregación de saldo a la clase Usuario
+        self.carnet_estudiantil = carnet_estudiantil
+        self.opcion = opcion
+        self.saldo = 0
 
     def perfil_info(self):
         return f"Nombre de usuario: {self.nombre_usuario}. Esta es la información básica del perfil."
@@ -30,8 +32,9 @@ class RegistroUsuarios:
             with open(self.csv_filename, 'r') as f:
                 reader = csv.reader(f)
                 for row in reader:
-                    nombre_usuario, contrasena = row
-                    usuarios[nombre_usuario] = Usuario(nombre_usuario, contrasena)
+                    if len(row) == 4:
+                        nombre_usuario, contrasena, carnet_estudiantil, opcion = row
+                        usuarios[nombre_usuario] = Usuario(nombre_usuario, contrasena, carnet_estudiantil, int(opcion))
         except FileNotFoundError:
             pass
         return usuarios
@@ -40,7 +43,7 @@ class RegistroUsuarios:
         self.usuarios[usuario.nombre_usuario] = usuario
         with open(self.csv_filename, 'a') as f:
             writer = csv.writer(f)
-            writer.writerow([usuario.nombre_usuario, usuario.contrasena])
+            writer.writerow([usuario.nombre_usuario, usuario.contrasena, usuario.carnet_estudiantil, usuario.opcion])
 
     def verificar_credenciales(self, nombre_usuario, contrasena):
         usuario = self.usuarios.get(nombre_usuario)
@@ -60,101 +63,72 @@ class Viaje:
         id_viaje += 1
 
 viajes = []
-id_viaje = 0  # Identificador único para cada viaje
+id_viaje = 0
+
+def load_last_id():
+    global id_viaje
+    try:
+        with open("id_viaje.txt", "r") as f:
+            id_viaje = int(f.read().strip())
+    except FileNotFoundError:
+        id_viaje = 0
+
+def save_last_id():
+    with open("id_viaje.txt", "w") as f:
+        f.write(str(id_viaje))
 
 # Aplicación principal
 class MainApp:
     def __init__(self):
+        load_last_id()
+
         self.app = Flask(__name__)
         self.app.secret_key = 'una_clave_secreta'
-
-        # Configura Flask-Session para almacenar sesiones en cookies
-        self.app.config['SESSION_TYPE'] = 'filesystem'  # Puedes cambiarlo para usar cookies
+        self.app.config['SESSION_TYPE'] = 'filesystem'
         Session(self.app)
 
+        self.usuarios = RegistroUsuarios()
         self.registrar_rutas()
 
     def registrar_rutas(self):
         @self.app.route('/')
         def inicio():
-            return render_template('publicar_viaje.html')
+            return render_template('inicio.html')
 
-        @self.app.route('/publicar_viaje', methods=['POST'])
-        def publicar_viaje():
-            hora = request.form.get('hora')
-            lugar_salida = request.form.get('lugar_salida')
-            placa = request.form.get('placa')
-            color_carro = request.form.get('color_carro')
-            cupos = int(request.form.get('cupos'))
-            inicio_recorrido = request.form.get('inicio_recorrido')
-            fin_recorrido = request.form.get('fin_recorrido')
-            viaje = Viaje(hora, lugar_salida, placa, color_carro, cupos, inicio_recorrido, fin_recorrido)
-            viajes.append(viaje)
-            return jsonify({"exito": "Viaje publicado con éxito!"})
+        @self.app.route('/iniciar_sesion', methods=['POST'])
+        def iniciar_sesion():
+            nombre_usuario = request.form.get('usuario')
+            contrasena = request.form.get('contrasena')
 
-        @self.app.route('/reservar/<int:id>', methods=['POST'])
-        def reservar(id):
-            viaje = next((v for v in viajes if v.id == id), None)
-            if not viaje:
-                return jsonify({"error": "Viaje no encontrado."}), 404
-            if viaje.cupos <= 0:
-                return jsonify({"error": "No hay cupos disponibles."}), 400
-            viaje.cupos -= 1
-            if viaje.cupos == 0:
-                viajes.remove(viaje)
-            return jsonify({"exito": "Cupo reservado con éxito!"})
+            if self.usuarios.verificar_credenciales(nombre_usuario, contrasena):
+                session['nombre_usuario'] = nombre_usuario
+                return jsonify({"exito": "Inicio de sesión exitoso."})
+            else:
+                return jsonify({"error": "Nombre de usuario o contraseña incorrectos."}), 401
 
-        @self.app.route('/listar_viajes', methods=['GET'])
-        def listar_viajes():
-            viajes_json = [{"id": v.id, "hora": v.hora, "lugar_salida": v.lugar_salida, "placa": v.placa,
-                            "color_carro": v.color_carro, "cupos": v.cupos, "inicio_recorrido": v.inicio_recorrido,
-                            "fin_recorrido": v.fin_recorrido} for v in viajes]
-            return jsonify(viajes_json)
+        @self.app.route('/registro', methods=['GET', 'POST'])
+        def registro():
+            if request.method == 'POST':
+                nombre_usuario = request.form.get('usuario')
+                contrasena = request.form.get('contrasena')
+                carnet_estudiantil = request.form.get('carnet')
+                opcion = int(request.form.get('opcion'))
 
-        # Ruta para el inicio de sesión
-        @self.app.route('/login', methods=['POST'])
-        def login():
-             nombre_usuario = request.form.get('nombre_usuario')
-             contraseña = request.form.get('contraseña')
-             usuario = usuarios.get(nombre_usuario)
+                if nombre_usuario in self.usuarios.usuarios:
+                    return jsonify({"error": "Nombre de usuario ya existe."}), 400
 
-             if usuario and usuario.contraseña == contraseña:
-                   # Almacena el nombre de usuario en la sesión (y la cookie)
-                   session['nombre_usuario'] = nombre_usuario
-                   return jsonify({"exito": "Inicio de sesión exitoso."})
-             else:
-                   return jsonify({"error": "Nombre de usuario o contraseña incorrectos."}), 401
+                nuevo_usuario = Usuario(nombre_usuario, contrasena, carnet_estudiantil, opcion)
+                self.usuarios.agregar_usuario(nuevo_usuario)
+                return jsonify({"exito": "Registro exitoso."})
 
-        @self.app.route('/saldo', methods=['GET'])
-        def saldo():
-            nombre_usuario = session.get('nombre_usuario')
-            if not nombre_usuario:
-                return jsonify({"error": "No has iniciado sesión."}), 401
-            return jsonify({"saldo": usuarios[nombre_usuario].saldo})
+            return render_template('registro.html')
 
-        @self.app.route('/agregar_saldo', methods=['POST'])
-        def agregar_saldo():
-            nombre_usuario = session.get('nombre_usuario')
-            if not nombre_usuario:
-                return jsonify({"error": "No has iniciado sesión."}), 401
-            monto = float(request.form.get('monto'))
-            usuarios[nombre_usuario].saldo += monto
-            return jsonify({"exito": f"Se agregaron ${monto} a tu billetera."})
+    def run(self):
+        try:
+            self.app.run(debug=True)
+        finally:
+            save_last_id()
 
-        @self.app.route('/retirar_saldo', methods=['POST'])
-        def retirar_saldo():
-            nombre_usuario = session.get('nombre_usuario')
-            if not nombre_usuario:
-                return jsonify({"error": "No has iniciado sesión."}), 401
-            monto = float(request.form.get('monto'))
-            if monto > usuarios[nombre_usuario].saldo:
-                return jsonify({"error": "No tienes suficiente saldo para retirar esa cantidad."}), 400
-            usuarios[nombre_usuario].saldo -= monto
-            return jsonify({"exito": f"Se retiraron${monto} de tu billetera.”})
-
-def run(self):
-    self.app.run(debug=True)
-
-if name == ‘main’:
-app = MainApp()
-app.run()
+if __name__ == '__main__':
+    app = MainApp()
+    app.run()
