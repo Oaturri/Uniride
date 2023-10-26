@@ -14,6 +14,7 @@ class Usuario(BaseUsuario):
     def __init__(self, nombre_usuario, contrasena):
         super().__init__(nombre_usuario)
         self.contrasena = contrasena
+        self.saldo = 0  # Agregación de saldo a la clase Usuario
 
     def perfil_info(self):
         return f"Nombre de usuario: {self.nombre_usuario}. Esta es la información básica del perfil."
@@ -149,11 +150,11 @@ class MainApp:
             if monto > usuarios[nombre_usuario].saldo:
                 return jsonify({"error": "No tienes suficiente saldo para retirar esa cantidad."}), 400
             usuarios[nombre_usuario].saldo -= monto
-            return jsonify({"exito": f"Se retiraron ${monto} de tu billetera."})
+            return jsonify({"exito": f"Se retiraron${monto} de tu billetera.”})
 
-    def run(self):
-        self.app.run(debug=True)
+def run(self):
+    self.app.run(debug=True)
 
-if __name__ == '__main__':
-    app = MainApp()
-    app.run()
+if name == ‘main’:
+app = MainApp()
+app.run()
